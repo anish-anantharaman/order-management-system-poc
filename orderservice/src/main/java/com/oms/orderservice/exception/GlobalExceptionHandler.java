@@ -94,4 +94,16 @@ public class GlobalExceptionHandler {
                         Boolean.FALSE
                 ));
     }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponseDto> handleGenericException(Exception ex) {
+        log.error("Unhandled exception occurred", ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ApiResponseDto(
+                        HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                        HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(),
+                        "An unexpected error occurred while processing the request",
+                        Boolean.FALSE
+                ));
+    }
 }

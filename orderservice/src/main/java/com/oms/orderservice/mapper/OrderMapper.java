@@ -2,6 +2,7 @@ package com.oms.orderservice.mapper;
 
 import com.oms.orderservice.dto.CreateOrderRequestDto;
 import com.oms.orderservice.dto.OrderItemDto;
+import com.oms.orderservice.dto.OrderSummaryDto;
 import com.oms.orderservice.entity.Order;
 import com.oms.orderservice.entity.OrderItem;
 import org.mapstruct.Mapper;
@@ -18,6 +19,7 @@ public interface OrderMapper {
     @Mapping(target = "totalAmount", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
+    @Mapping(target = "cancellationReason", ignore = true)
     Order toOrder(CreateOrderRequestDto dto);
 
     @Mapping(target = "id", ignore = true)
@@ -25,4 +27,12 @@ public interface OrderMapper {
     OrderItem toOrderItem(OrderItemDto dto);
 
     List<OrderItem> toOrderItems(List<OrderItemDto> dto);
+
+//    OrderItemDto toOrderItemDto(OrderItem item);
+
+    List<OrderItemDto> toOrderItemDtos(List<OrderItem> items);
+
+    OrderSummaryDto toOrderSummaryDto(Order order);
+
+    List<OrderSummaryDto> toOrderSummaryDtos(List<Order> orders);
 }

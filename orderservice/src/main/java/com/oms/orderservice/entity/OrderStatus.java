@@ -1,7 +1,9 @@
 package com.oms.orderservice.entity;
 
 public enum OrderStatus {
-    PENDING,
     CREATED,
-    CONFIRMED
+    PENDING,
+    CONFIRMED,
+    CANCEL_REQUESTED,
+    CANCELLED
 }

@@ -37,6 +37,9 @@ public class Order {
     @Column(name = "total_amount", nullable = false)
     private BigDecimal totalAmount;
 
+    @Column(name = "cancellation_reason")
+    private String cancellationReason;
+
     @Column(name = "created_at", updatable = false)
     @CreationTimestamp
     private Instant createdAt;

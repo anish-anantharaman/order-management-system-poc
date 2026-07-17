@@ -99,10 +99,27 @@ public class OrderController {
                 ));
     }
 
+    @Operation(
+            summary = "Fetch orders",
+            description = "Fetches a paginated list of orders, optionally filtered by customer id and/or status. " +
+                    "Returns 200 if successful, and 500 if the server fails to process the request"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Orders fetched successfully",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = ApiResponseDto.class),
+                            examples = @ExampleObject(name = "Orders fetched", value = SwaggerConstants.FETCH_ORDERS_RESPONSE_EXAMPLE))),
+            @ApiResponse(responseCode = "500", description = "Server failed to process the request",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            examples = @ExampleObject(name = "Server error", value = SwaggerConstants.FETCH_ORDERS_SERVER_ERROR_EXAMPLE)))
+    })
     @GetMapping(path = "/orders", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Object> fetchOrders(@RequestParam(required = false) UUID customerId,
-               @RequestParam(required = false) String status, @RequestParam(defaultValue = "0") int page,
-               @RequestParam(defaultValue = "20") int size) {
+    public ResponseEntity<Object> fetchOrders(
+               @Parameter(description = "Unique identifier of the customer to filter orders by",
+                       example = "3fa85f64-5717-4562-b3fc-2c963f66afa6") @RequestParam(required = false) UUID customerId,
+               @Parameter(description = "Status to filter orders by", example = "CREATED") @RequestParam(required = false) String status,
+               @Parameter(description = "Page number to fetch (0-indexed)", example = "0") @RequestParam(defaultValue = "0") int page,
+               @Parameter(description = "Number of items per page", example = "20") @RequestParam(defaultValue = "20") int size) {
 
         PagedResponseDto<OrderSummaryDto> orders = orderService.fetchOrders(customerId, status, page, size);
         return ResponseEntity.ok()
@@ -114,9 +131,37 @@ public class OrderController {
                 ));
     }
 
+    @Operation(
+            summary = "Update order status",
+            description = "Updates the status of the order for the given order id. " +
+                    "Returns 200 if successful, 400 if validation fails, 404 if no order exists with the given id, " +
+                    "and 500 if the server fails to process the request"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Order status updated successfully",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = ApiResponseDto.class),
+                            examples = @ExampleObject(name = "Order status updated", value = SwaggerConstants.UPDATE_ORDER_STATUS_RESPONSE_EXAMPLE))),
+            @ApiResponse(responseCode = "400", description = "Validation failed for the request",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            examples = @ExampleObject(name = "Validation error", value = SwaggerConstants.UPDATE_ORDER_STATUS_VALIDATION_ERROR_EXAMPLE))),
+            @ApiResponse(responseCode = "404", description = "Order not found",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            examples = @ExampleObject(name = "Order not found", value = SwaggerConstants.UPDATE_ORDER_STATUS_NOT_FOUND_EXAMPLE))),
+            @ApiResponse(responseCode = "500", description = "Server failed to process the request",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            examples = @ExampleObject(name = "Server error", value = SwaggerConstants.UPDATE_ORDER_STATUS_SERVER_ERROR_EXAMPLE)))
+    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            required = true,
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = OrderStatusRequestDto.class),
+                    examples = @ExampleObject(name = "Update order status request", value = SwaggerConstants.UPDATE_ORDER_STATUS_REQUEST_EXAMPLE))
+    )
     @PatchMapping(path="/orders/{id}/status", consumes = MediaType.APPLICATION_JSON_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Object> updateOrderStatus(@PathVariable UUID id,
+    public ResponseEntity<Object> updateOrderStatus(@Parameter(description = "Unique identifier of the order",
+            example = "9c858901-8a57-4791-81fe-4c455b099bc9") @PathVariable UUID id,
                                                       @Valid @RequestBody OrderStatusRequestDto statusRequestDto) {
         OrderStatusResponseDto orderStatusResponseDto = orderService.updateOrderStatus(id, statusRequestDto);
         return ResponseEntity.ok()
@@ -128,9 +173,34 @@ public class OrderController {
                 ));
     }
 
+    @Operation(
+            summary = "Cancel order",
+            description = "Submits a cancellation request for the order with the given order id. " +
+                    "Returns 200 if successful, 404 if no order exists with the given id, " +
+                    "and 500 if the server fails to process the request"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Order cancellation request submitted successfully",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = ApiResponseDto.class),
+                            examples = @ExampleObject(name = "Order cancellation requested", value = SwaggerConstants.CANCEL_ORDER_RESPONSE_EXAMPLE))),
+            @ApiResponse(responseCode = "404", description = "Order not found",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            examples = @ExampleObject(name = "Order not found", value = SwaggerConstants.CANCEL_ORDER_NOT_FOUND_EXAMPLE))),
+            @ApiResponse(responseCode = "500", description = "Server failed to process the request",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            examples = @ExampleObject(name = "Server error", value = SwaggerConstants.CANCEL_ORDER_SERVER_ERROR_EXAMPLE)))
+    })
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            required = true,
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = CancelOrderRequestDto.class),
+                    examples = @ExampleObject(name = "Cancel order request", value = SwaggerConstants.CANCEL_ORDER_REQUEST_EXAMPLE))
+    )
     @PatchMapping(path = "/orders/{id}/cancel", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Object> cancelOrder(@PathVariable UUID id,
+    public ResponseEntity<Object> cancelOrder(@Parameter(description = "Unique identifier of the order",
+            example = "9c858901-8a57-4791-81fe-4c455b099bc9") @PathVariable UUID id,
                                               @Valid @RequestBody CancelOrderRequestDto cancelOrderRequestDto) {
         OrderStatusResponseDto orderStatusResponseDto = orderService.cancelOrder(id, cancelOrderRequestDto);
         return ResponseEntity.ok()

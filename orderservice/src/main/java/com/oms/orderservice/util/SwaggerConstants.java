@@ -99,4 +99,118 @@ public class SwaggerConstants {
               "response": false
             }
             """;
+
+    public static final String FETCH_ORDERS_RESPONSE_EXAMPLE = """
+            {
+              "statusCode": 200,
+              "statusMessage": "OK",
+              "message": "Orders fetched successfully",
+              "response": {
+                "content": [
+                  {
+                    "id": "9c858901-8a57-4791-81fe-4c455b099bc9",
+                    "customerId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                    "status": "CREATED",
+                    "totalAmount": 1499.99
+                  }
+                ],
+                "page": 0,
+                "size": 20,
+                "totalElements": 1,
+                "totalPages": 1
+              }
+            }
+            """;
+
+    public static final String FETCH_ORDERS_SERVER_ERROR_EXAMPLE = """
+            {
+              "statusCode": 500,
+              "statusMessage": "Internal Server Error",
+              "message": "An unexpected error occurred while processing the request",
+              "response": false
+            }
+            """;
+
+    public static final String UPDATE_ORDER_STATUS_REQUEST_EXAMPLE = """
+            {
+              "status": "CONFIRMED"
+            }
+            """;
+
+    public static final String UPDATE_ORDER_STATUS_RESPONSE_EXAMPLE = """
+            {
+              "statusCode": 200,
+              "statusMessage": "OK",
+              "message": "Order status updated successfully",
+              "response": {
+                "id": "9c858901-8a57-4791-81fe-4c455b099bc9",
+                "status": "CONFIRMED"
+              }
+            }
+            """;
+
+    public static final String UPDATE_ORDER_STATUS_VALIDATION_ERROR_EXAMPLE = """
+            {
+              "statusCode": 400,
+              "statusMessage": "Bad Request",
+              "message": "Validation failed",
+              "response": {
+                "status": "must not be blank"
+              }
+            }
+            """;
+
+    public static final String UPDATE_ORDER_STATUS_NOT_FOUND_EXAMPLE = """
+            {
+              "statusCode": 404,
+              "statusMessage": "Not Found",
+              "message": "Order not found with id: 9c858901-8a57-4791-81fe-4c455b099bc9",
+              "response": false
+            }
+            """;
+
+    public static final String UPDATE_ORDER_STATUS_SERVER_ERROR_EXAMPLE = """
+            {
+              "statusCode": 500,
+              "statusMessage": "Internal Server Error",
+              "message": "An unexpected error occurred while processing the request",
+              "response": false
+            }
+            """;
+
+    public static final String CANCEL_ORDER_REQUEST_EXAMPLE = """
+            {
+              "reason": "Customer requested cancellation"
+            }
+            """;
+
+    public static final String CANCEL_ORDER_RESPONSE_EXAMPLE = """
+            {
+              "statusCode": 200,
+              "statusMessage": "OK",
+              "message": "Order cancellation request submitted",
+              "response": {
+                "id": "9c858901-8a57-4791-81fe-4c455b099bc9",
+                "status": "CANCEL_REQUESTED"
+              }
+            }
+            """;
+
+    public static final String CANCEL_ORDER_NOT_FOUND_EXAMPLE = """
+            {
+              "statusCode": 404,
+              "statusMessage": "Not Found",
+              "message": "Order not found with id: 9c858901-8a57-4791-81fe-4c455b099bc9",
+              "response": false
+            }
+            """;
+
+    public static final String CANCEL_ORDER_SERVER_ERROR_EXAMPLE = """
+            {
+              "statusCode": 500,
+              "statusMessage": "Internal Server Error",
+              "message": "An unexpected error occurred while processing the request",
+              "response": false
+            }
+            """;
 }

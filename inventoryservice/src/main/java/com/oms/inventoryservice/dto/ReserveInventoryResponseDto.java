@@ -6,6 +6,6 @@ import java.util.UUID;
 public record ReserveInventoryResponseDto(
         UUID orderId,
         String status,
-        List<ItemDto> items
+        List<ItemDto> reservations
 ) {
 }

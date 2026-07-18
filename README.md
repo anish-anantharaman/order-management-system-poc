@@ -5,6 +5,9 @@ Proof of Concept for an event-driven Order Management System built with Spring B
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)
+- [Apache Camel Integration Layer](#apache-camel-integration-layer)
+- [Saga Pattern](#saga-pattern)
+- [API Endpoints Summary](#api-endpoints-summary)
 - [API Response Format](#api-response-format)
 - [Order Service](#order-service)
   - [DB Schema](#order-service-db-schema)
@@ -28,34 +31,44 @@ Proof of Concept for an event-driven Order Management System built with Spring B
 
 ## Architecture Overview
 
-Each microservice owns its own PostgreSQL schema/database (database-per-service) and communicates with other services asynchronously via Kafka events, orchestrated/choreographed as a **Saga**. Apache Camel is used for routing, event transformation, and integration between Kafka and each service's internal processing pipeline.
+This system combines three distinct patterns, each solving a different problem — none of them is a substitute for the others:
+
+| Pattern | Problem it solves | Where it shows up here |
+|---|---|---|
+| **Database-per-service** | Service autonomy / independent schema evolution | Each service owns its own PostgreSQL schema (see table below) |
+| **Apache Camel** | *How* a service talks to Kafka and to other integration endpoints — routing, message translation, content-based routing, error handling (dead-letter/retry) | A dedicated Camel `RouteBuilder` per service (see [Apache Camel Integration Layer](#apache-camel-integration-layer)); no service touches `KafkaTemplate`/`@KafkaListener` directly |
+| **Saga (choreography)** | Distributed transaction consistency across services without 2PC — each step publishes an event that triggers the next, and failures trigger compensating actions | The end-to-end order flow below; detailed in [Saga Pattern](#saga-pattern) |
+
+Kafka is the transport the Saga's events travel over, but it is never touched directly by service code — every publish and every consume passes through a **Camel route**, which is what actually performs the content-based routing, payload transformation, and error handling that make the choreography work. Read the flow below as "service → Camel route → Kafka → Camel route → service", not "service → Kafka → service".
 
 ```
                  ┌───────────────┐
    REST ───────► │ Order Service │
                  └───────┬───────┘
-                         │ order.created
+                         │ [Camel route] produces order.created
                          ▼
-                 ┌───────────────┐        inventory.reserved /
-                 │Inventory Svc  │ ─────► inventory.rejected
-                 └───────┬───────┘
+                 ┌───────────────┐        [Camel route] produces
+                 │Inventory Svc  │ ─────► inventory.reserved /
+                 └───────┬───────┘        inventory.rejected
                          │ (on success)
                          ▼
-                 ┌───────────────┐        payment.authorized /
-                 │Payment Svc    │ ─────► payment.declined
-                 └───────┬───────┘
+                 ┌───────────────┐        [Camel route] produces
+                 │Payment Svc    │ ─────► payment.authorized /
+                 └───────┬───────┘        payment.declined
                          │ (on success)
                          ▼
-                 ┌───────────────┐        shipment.created /
-                 │Shipment Svc   │ ─────► shipment.failed
-                 └───────┬───────┘
+                 ┌───────────────┐        [Camel route] produces
+                 │Shipment Svc   │ ─────► shipment.created /
+                 └───────┬───────┘        shipment.failed
                          │
                          ▼
                  ┌───────────────┐
-                 │Notification   │  (listens to all above topics)
+                 │Notification   │  ([Camel route] consumes all topics above)
                  │Service        │
                  └───────────────┘
 ```
+
+Every arrow in this diagram is a Camel route consuming from or producing to a Kafka topic — see [Apache Camel Integration Layer](#apache-camel-integration-layer) for what each route actually does, and [Saga Pattern](#saga-pattern) for how compensation works when a step fails.
 
 Services in this document:
 
@@ -70,6 +83,92 @@ Services in this document:
 > The schemas below for Inventory, Payment, Shipment, and Notification are designs meant to be flexible starting points — adjust as needed.
 >
 > **Why Payment Service:** in almost every real-world OMS saga, payment authorization sits between stock reservation and shipment — and its refund/void is a key compensating action if a later step (e.g. shipment) fails. It's the most commonly missing piece in a minimal Order/Inventory/Shipment/Notification slice, so it's included here. Other commonly-added pieces (Customer/Account Service, Product Catalog Service, API Gateway, a dedicated Saga Orchestrator/audit-log service) were intentionally left out of this POC's scope — flag if you'd like any of those added too.
+
+---
+
+## Apache Camel Integration Layer
+
+Every Kafka producer/consumer in this system is a **Camel route**, not a raw `KafkaTemplate`/`@KafkaListener`. This is what lets each service apply content-based routing, message translation, and consistent error handling (dead-letter + retry) at the integration boundary instead of scattering that logic through business code.
+
+Each service ships a `RouteBuilder` (e.g. `orderservice/src/main/java/com/oms/orderservice/route/OrderSagaRoute.java`) using the `camel-kafka` and `camel-jackson` components, structured as:
+
+```java
+from("kafka:inventory.rejected?brokers={{kafka.brokers}}")
+    .routeId("inventory-rejected-consumer")
+    .onException(Exception.class)
+        .maximumRedeliveries(3)
+        .backOffMultiplier(2)
+        .to("kafka:{{topic.dlq}}")
+    .end()
+    .unmarshal().json(JsonLibrary.Jackson, InventoryRejectedEvent.class)
+    .bean(OrderSagaHandler.class, "handleInventoryRejected")
+    .choice()
+        .when(header("compensationRequired").isEqualTo(true))
+            .to("kafka:payment.refund.requested?brokers={{kafka.brokers}}")
+    .end();
+```
+
+| Service | Inbound routes (Kafka → service) | Outbound routes (service → Kafka) | EIPs used |
+|---|---|---|---|
+| **Order Service** | `inventory.rejected`, `payment.declined`, `shipment.created`, `shipment.failed` | `order.created`, `order.status.updated` | Content-Based Router (route to `CONFIRMED` vs `CANCELLED` handling), Message Translator, Dead Letter Channel |
+| **Inventory Service** | `order.created`, `shipment.failed` (compensation) | `inventory.reserved`, `inventory.rejected` | Message Translator (REST DTO ↔ event schema), Idempotent Consumer (dedupe on `orderId`) |
+| **Payment Service** | `inventory.reserved`, `shipment.created` (capture trigger), `shipment.failed` (refund trigger) | `payment.authorized`, `payment.declined` | Content-Based Router (authorize vs capture vs refund), Dead Letter Channel |
+| **Shipment Service** | `payment.authorized` | `shipment.created`, `shipment.failed` | Message Translator |
+| **Notification Service** | `order.created`, `inventory.reserved`, `inventory.rejected`, `payment.authorized`, `payment.declined`, `shipment.created`, `shipment.failed`, `order.status.updated` | *(none — terminal consumer)* | Wire Tap / multicast (fan out one event to email/SMS/push channels), Message Filter |
+
+All routes share:
+- **Dead Letter Channel**: after 3 retries with exponential backoff, a failed exchange is routed to a `<topic>.dlq` topic rather than blocking the consumer or silently dropping the event.
+- **Message Translator**: every route unmarshals/marshals between the Kafka JSON payload and the service's internal DTOs via Jackson, so REST controllers and Camel routes never share a wire format by accident.
+- **Idempotent Consumer** (where relevant, e.g. Inventory/Payment): guards against duplicate processing on Kafka's at-least-once redelivery, keyed on `orderId`.
+
+## Saga Pattern
+
+This system uses a **choreography-based Saga** — there is no central orchestrator service; each participant reacts to the previous participant's event and decides locally whether to proceed or compensate. This keeps the POC simple (no extra Saga-orchestrator service to build/run) at the cost of the flow being implicit across services rather than explicit in one place — see the trade-off note in [Architecture Overview](#architecture-overview) for why a dedicated orchestrator was left out of scope.
+
+**Forward path** (happy path, detailed in [Saga Flow](#saga-flow-order-creation)):
+
+```
+order.created → inventory.reserved → payment.authorized → shipment.created → order CONFIRMED
+```
+
+**Compensating transactions** — if any step fails, prior successful steps are unwound in reverse order:
+
+| Failure point | Compensating action(s) | Triggered by |
+|---|---|---|
+| Inventory reservation fails (`inventory.rejected`) | None needed — no prior step to undo | Order Service sets status `CANCELLED` |
+| Payment authorization fails (`payment.declined`) | `POST /api/v1/inventory/release` — release the reserved stock | Inventory Service consumes `payment.declined` |
+| Shipment creation fails (`shipment.failed`) | `POST /api/v1/inventory/release` **and** `POST /api/v1/payments/{orderId}/refund` (or void, if not yet captured) | Inventory Service and Payment Service both consume `shipment.failed` |
+| Customer-initiated cancel before shipment (`POST /api/v1/orders/{id}/cancel`) | Same as above — release stock, refund/void payment if authorized/captured | Order Service publishes compensation-triggering events on cancel |
+
+Each compensating action is itself idempotent and independently retryable (via the Camel Dead Letter Channel above), which is what makes choreography safe under Kafka's at-least-once delivery — a compensating event can be redelivered without double-releasing stock or double-refunding a payment.
+
+---
+
+## API Endpoints Summary
+
+Every REST endpoint defined in this document, in one place:
+
+| Method | Endpoint | Service | Purpose |
+|---|---|---|---|
+| `POST` | [`/api/v1/orders`](#post-apiv1orders) | Order | Create a new order with line items |
+| `GET` | [`/api/v1/orders/{id}`](#get-apiv1ordersid) | Order | Fetch a single order with its line items |
+| `GET` | [`/api/v1/orders?customerId={customerId}&status={status}&page={page}&size={size}`](#get-apiv1orderscustomeridcustomeridstatusstatuspagepagesizesize) | Order | List/search orders, filterable and paginated |
+| `PATCH` | [`/api/v1/orders/{id}/status`](#patch-apiv1ordersidstatus) | Order | Advance order status (saga-driven or admin) |
+| `POST` | [`/api/v1/orders/{id}/cancel`](#post-apiv1ordersidcancel) | Order | Cancel an order, triggers saga compensation |
+| `POST` | [`/api/v1/inventory/reserve`](#post-apiv1inventoryreserve) | Inventory | Reserve stock for an order's items |
+| `POST` | [`/api/v1/inventory/release`](#post-apiv1inventoryrelease) | Inventory | Compensating action — release reserved stock |
+| `GET` | [`/api/v1/inventory/{sku}`](#get-apiv1inventorysku) | Inventory | Fetch current stock levels for a SKU |
+| `POST` | [`/api/v1/payments/authorize`](#post-apiv1paymentsauthorize) | Payment | Authorize payment for an order's total amount |
+| `POST` | [`/api/v1/payments/{orderId}/capture`](#post-apiv1paymentsorderidcapture) | Payment | Capture a previously authorized payment |
+| `POST` | [`/api/v1/payments/{orderId}/refund`](#post-apiv1paymentsorderidrefund) | Payment | Compensating action — refund/void a payment |
+| `GET` | [`/api/v1/payments/{orderId}`](#get-apiv1paymentsorderid) | Payment | Fetch payment status/details for an order |
+| `POST` | [`/api/v1/shipments`](#post-apiv1shipments) | Shipment | Create a shipment for a confirmed order |
+| `PATCH` | [`/api/v1/shipments/{id}/status`](#patch-apiv1shipmentsidstatus) | Shipment | Update shipment status (dispatch/deliver/fail) |
+| `GET` | [`/api/v1/shipments/{orderId}`](#get-apiv1shipmentsorderid) | Shipment | Fetch shipment details/tracking by order ID |
+| `GET` | [`/api/v1/notifications/{orderId}`](#get-apiv1notificationsorderid) | Notification | Fetch notification history for an order |
+| `POST` | [`/api/v1/notifications/{id}/resend`](#post-apiv1notificationsidresend) | Notification | Manually re-trigger a failed notification |
+
+**17 endpoints total** — 5 Order, 3 Inventory, 4 Payment, 3 Shipment, 2 Notification.
 
 ---
 
@@ -853,6 +952,8 @@ Choreography-based saga using Kafka events, routed/transformed by Apache Camel i
 6. **Notification Service**: consumes all of the above events → sends customer notifications at each stage
 
 ## Kafka Topics
+
+Every producer/consumer below is a Camel route (see [Apache Camel Integration Layer](#apache-camel-integration-layer)), not a direct Kafka client — the table lists the logical topic ownership; the routes table above lists which EIPs each service applies to it.
 
 | Topic | Producer | Consumers | Payload summary |
 |---|---|---|---|
